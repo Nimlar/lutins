@@ -1,0 +1,18 @@
+{
+  "name": "lutins",
+  "version": "0.0.0",
+  "description": "ERROR: No README.md file found!",
+  "main": "apps.js",
+  "dependencies": {
+    "util": "~0.10.1",
+    "redis": "~0.9.1"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": "",
+  "author": "Nicolas Toromanoff",
+  "license": "BSD",
+  "gitHead": "943e40cf9b6e0082718d1bf23964af28fbf3a7aa"
+}
