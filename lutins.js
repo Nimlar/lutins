@@ -1,4 +1,17 @@
-var async = require('async');
+var async = require('async'),
+    events = require('events'),
+    util = require('util');
+
+function GameEvent(){
+     if(false === (this instanceof GameEvent)) {
+        return new GameEvent();
+     }
+     events.EventEmitter.call(this);
+}
+util.inherits(GameEvent, events.EventEmitter);
+
+var gameEvent= new GameEvent();
+
 
 function other_side(side){
     if ( side == 'right' )
@@ -59,15 +72,25 @@ Heap.prototype.set_heap = function(heap, cb){
     this.db.set(this.prefix+":heap", heap, cb);
 };
 Heap.prototype.add_heap = function(val, reason, cb){
+    console.log("heap ",this.id," inc by ", val, ":", reason);
+    var h=this;
+    h.get_player_ids(function(err, players_id){
+        gameEvent.emit('h_heap', val, h.game.id, h.id, players_id, reason);
+    });
     this.db.incrby(this.prefix+":heap", val, function (err, res) { cb(err, val, reason) ;});
 };
 Heap.prototype.sub_heap = function(val, reason, cb){
+    console.log("heap ",this.id," dec by ", val, ":", reason);
+    var h=this;
+    h.get_player_ids(function(err, players_id){
+        gameEvent.emit('h_heap', -val, h.game.id, h.id, players_id, reason);
+    });
     this.db.decrby(this.prefix+":heap", val, function (err, res) { cb(err, val, reason) ;});
 };
 Heap.prototype.steal = function(cb){
     var that=this;
     this.get_heap( function(err, heap) {
-        var val = Math.min( Math.floor(heap/2), Math.floor(that.game.steal_const + heap * that.game.steal_coeff))
+        var val = Math.min( Math.floor(heap/2), Math.floor(that.game.steal_const + heap * that.game.steal_coeff));
         that.sub_heap(val, "steal", cb);
     });
 };
@@ -79,20 +102,17 @@ Heap.prototype.turn = function(n, cb) {
     var all_stealer = true;
     var all_worker = true;
 
-console.log("Heap.turn");
     /* update curent heap value due to neigbourough workers */
     function updateDueToWorkers(workers, cb){
-	console.log("h=", h.id, "is updateDueToWorker", workers.length);
 	if(workers.length !==0 ) {
             var nb = Object.keys(workers).length;
-            function returnCallback(err) {
+            var returnCallback = function (err) {
                 nb--;
                 if(nb<=0) cb(err);
-            }
+            };
             for (var w in workers) {
 
-                console.log(workers[w].id, "is a Worker");
-                h.add_heap(h.game.gain, "work from player " + w.name, returnCallback);
+                h.add_heap(h.game.gain, "work from player " + w, returnCallback);
             }
         }else{
             cb && cb(null);
@@ -101,9 +121,7 @@ console.log("Heap.turn");
 
     /* update curent heap value if all neigbourough are worker */
     function updateDueToAllWorker(all_workers, cb){
-	console.log("updateDueToAllWorker");
         if(all_workers) {
-            console.log(h.id, "All naigbough are Worker");
             h.get_heap( function(err, heap){
                 var bonus = Math.floor(h.game.bonus_const + h.game.bonus_coeff * heap);
                 h.add_heap(bonus, "bonus", cb);
@@ -115,7 +133,6 @@ console.log("Heap.turn");
 
     /* update curent heap value if all neigbourough are stealer */
     function updateDueToAllStealer(all_stealers, cb) {
-	console.log("updateDueToAllStealer");
        if (all_stealer) {
             h.get_heap( function(err, heap){
                 var destruct = Math.min( Math.floor( h.game.malus_const + h.game.malus_coeff * heap), heap );
@@ -138,11 +155,9 @@ console.log("Heap.turn");
     /* prepare neigbourgs players
     for each player in neigbourgough add the action fiels*/
     function managePlayer(player, cb) {
-	console.log("manage player=", player[1].id);
         var s=player[0];
         var p=player[1];
         p.get_actionAndSide( function(err, action) {
-//		console.log("\n\nICI\np=",p.id, " ", action);
             if(err) {
                 cb(err);
                 return;
@@ -175,9 +190,7 @@ Heap.prototype.attach_player_ids = function(players, cb){
     this.db.hmset(this.prefix+":players", players, cb);
 };
 Heap.prototype.get_player_ids = function(cb){
-        this.db.hgetall(this.prefix+":players", function(err, player_ids) {
-            cb(err, player_ids);
-        });
+        this.db.hgetall(this.prefix+":players", cb);
 };
 Heap.prototype.get_players = function(cb){
     var that=this;
@@ -252,9 +265,13 @@ Player.prototype.set_heap = function(heap, cb){
     this.db.set(this.prefix+":heap", heap, cb);
 };
 Player.prototype.add_heap = function(val, reason, cb){
+    console.log("player ",this.id," inc by ", val, ":", reason);
+    gameEvent.emit('p_heap', val, this.game.id, this.id, reason);
     this.db.incrby(this.prefix+":heap", val, function (err, res) { cb(err, res, reason) ;} );
 };
 Player.prototype.sub_heap = function(val, reason, cb){
+    console.log("player ",this.id," dec by ", val, ":", reason);
+    gameEvent.emit('p_heap', -val,this.game.id, this.id, reason);
     this.db.decrby(this.prefix+":heap", val , function (err, res) { cb(err, res, reason) ;});
 };
 
@@ -303,23 +320,21 @@ Player.prototype.get_actionAndSide = function(cb) {
     });
 };
 
-Player.prototype.steal = function(heap_id, cb) {
+Player.prototype.steal = function(side, cb) {
     /* get heap of this side */
     var h;
-    h = new Heap(this.db, this.game);
-    h.set_id(heap_id, InformHeapAboutStealer);
-    var that=this;
-    function InformHeapAboutStealer(err, res) {
+    var p=this;
+    p.get_heaps(function (err, heaps) {
+        h=heaps[side];
         h.steal(function( err, value){
-            that.add_heap(value, "stealed", cb);
+            p.add_heap(value, "stealed by "+p.id, cb);
         });
-    }
+    });
 };
 Player.prototype.turn = function(n, cb) {
-console.log("Player.turn");
     var p = this;
     this.get_actionAndSide(function(err, action){
-        if (action == StateEnum.STEAL) {
+        if (action.state == StateEnum.STEAL) {
             var nb = Object.keys(action.side).length;
             var returnCallback = function (err, val) {
                 nb--;
@@ -368,6 +383,7 @@ function Game(db) {
     this.steal_coeff  = 0.5;
     this.score_coeff_self=2;
     this.score_coeff_heap=1;
+
 }
 
 Game.prototype.set_id = function(game_id, cb) {
@@ -384,8 +400,8 @@ Game.prototype.set_id = function(game_id, cb) {
     }
 };
 
-Game.prototype.Player = Player;
-Game.prototype.Heap = Heap;
+//Game.prototype.Player = Player;
+//Game.prototype.Heap = Heap;
 
 Game.prototype.player_add = function(name, cb) {
     var p, first_p;
@@ -434,17 +450,15 @@ Game.prototype.player_add = function(name, cb) {
 
 
 Game.prototype.turn = function(n, cb) {
-console.log("Game.turn");
+console.log("Game ", this.id, " turn ", n);
     var g = this;
     function oneHeapTurn(h_id, cb) {
-console.log("One heap turn");
         var h = new Heap(g.db, g);
         h.set_id(h_id, function(err) {
             h.turn(n, cb);
         });
     }
     function onePlayerTurn(p_id, cb) {
-console.log("One  player turn");
         var p = new Player(g.db, g);
         p.set_id(p_id, function(err) {
             p.turn(n, cb);
@@ -452,14 +466,12 @@ console.log("One  player turn");
     }
 
     function heapTurn(cb) {
-console.log("All heap turn");
         g.db.lrange(g.prefix + ":heaps", 0, -1, function(err, res) {
             async.each(res, oneHeapTurn, cb);
         });
     }
 
     function playerTurn(cb) {
-console.log("All player turn");
         g.db.lrange(g.prefix + ":players", 0, -1, function(err, res) {
             async.each(res,onePlayerTurn,cb);
         });
@@ -490,25 +502,28 @@ Game.prototype.setPlayerState = function(p_id, state, side, cb) {
 
 Game.prototype.getInfoPlayer = function(p_id, cb) {
     var p = new Player(this.db, this);
+    var p_info={};
     p.set_id(p_id, function(err) {
-
+        p_info.id=p_id;
         if(err) { cb(err); return;}
         p.get_heap(function (err, heap){
             if(err) { cb(err); return;}
-            p.heap=heap;
+            p_info.heap=heap;
             p.get_heaps(function (err, heaps){
                 if(err) { cb(err); return;}
-                p.heaps=heaps;
+                p_info.right={};
+                p_info.left={};
+                p_info.right.id =heaps.right.id;
+                p_info.left.id =heaps.left.id;
                 var nb = Object.keys(heaps).length;
                 function getAddHeapsHeapfct(h){
-                    return function addHeapsHeap(err, val) {
+                    return function addHeapsHeap(err, heap) {
                         if(err) { cb(err); return;}
                         nb--;
-                         p.heaps[h].get_heap(function(err, heap) {
-                            p.heaps[h].heap = heap;
-                            if(nb===0)
-                                cb(err, p);
-                         });
+                        p_info[h].heap = heap;
+                        if(nb===0){
+                                cb(err, p_info);
+                        }
                     };
                 }
                 for (var h in heaps) {
@@ -524,16 +539,31 @@ Game.prototype.displayPlayer = function(p_id, cb){
     g.getInfoPlayer(p_id, function(err, p) {
         if(err) { cb(err); return;}
         console.log("player", p.id, " with h=", p.heap,
-        "\n    L=", p.heaps.left.id,  " with h=", p.heaps.left.heap,
-        "\n    R=",p.heaps.right.id,  " with h=", p.heaps.right.heap);
+        "\n    L=", p.left.id,  " with h=", p.left.heap,
+        "\n    R=",p.right.id,  " with h=", p.right.heap);
         cb(null);
     });
 };
 
+Game.prototype.getStatus = function(cb) {
+    var status = []
+    function push_one_player(p_id, cb2) {
+        g.getInfoPlayer(p_id, function(err, p_info) {
+                if(err) cb2(err);
+                status.push(p_info);
+                cb(null);
+        });
+    }
+
+    this.db.lrange(this.prefix + ":players", 0, -1, function(err, res) {
+        async.each(res, push_one_player, cb);
+    });
+
+}
 Game.prototype.displayAllPlayers = function(cb) {
     var g = this;
-    function display_one_player(p_id, cb) {
-        g.displayPlayer(p_id, cb);
+    function display_one_player(p_id, cb2) {
+        g.displayPlayer(p_id, cb2 );
     }
     this.db.lrange(this.prefix + ":players", 0, -1, function(err, res) {
         async.eachSeries(res, display_one_player, cb);
@@ -541,6 +571,6 @@ Game.prototype.displayAllPlayers = function(cb) {
 };
 
 exports.Game=Game;
+exports.gameEvent=gameEvent;
 exports.Player=StateEnum;
-
 
