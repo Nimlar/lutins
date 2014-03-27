@@ -24,22 +24,22 @@ function new_player(req, res, next) {
 }
 
 var next_turn = function() {
-	var n=0;
-	return function (req, res, next) {
-	    var g = new a.Game(db);
-	    g.set_id(req.params.game_id, function(err, val) {
-		    g.turn(n++, function() { 
+    var n=0;
+    return function (req, res, next) {
+        var g = new a.Game(db);
+        g.set_id(req.params.game_id, function(err, val) {
+            g.turn(n++, function() { 
                         res.send("new turn " + n);
                         next();
-                    });
-	    });
-	};
+            });
+        });
+    };
 }();
 
 
 function player_move(req, res, next) {
     var g = new a.Game(db);
-    load=JSON.parse(req.body)
+    var load=JSON.parse(req.body);
     g.set_id(req.params.game_id, function(err, val) {
         g.setPlayerState(req.params.p_id, load.state, load.side, function(){
             console.log("La -> ", req.params.p_id, load.state, load.side);

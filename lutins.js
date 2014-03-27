@@ -409,43 +409,59 @@ Game.prototype.player_add = function(name, cb) {
     var players_key = this.prefix + ":players";
     var heaps_key = this.prefix + ":heaps";
     var g=this;
+    var AddInGameLists;
+    /* If odd number of player, add new player/heap at the end,
+       if even add player/heap at the start
+       So all 'old' player are near each other */
+    g.db.llen(heaps_key, function(err, lheaps){
+        if((lheaps%2) === 0){
+            AddInGameLists =function (err, val) {
+                /* add player and heap into theirs respective lists */
+                g.db.lpush(players_key, p.id, function(err, res) {
+                    g.db.lpush(heaps_key, h.id, function(err, res) {
+                        cb && cb(err, res);
+                    });
+                });
+            };
+        }else{
+            AddInGameLists =function (err, val) {
+                /* add player and heap into theirs respective lists */
+                g.db.rpush(players_key, p.id, function(err, res) {
+                    g.db.rpush(heaps_key, h.id, function(err, res) {
+                        cb && cb(err, res);
+                    });
+                });
+            };
+        }
 
-    /* create new Player and a his/her new R-heap */
-    p = new Player(this.db, this);
-    h = new Heap(this.db, this);
-    p.set_id(null, function(err, p_id) {
-        h.set_id(null, function(err,h_id){
-            g.db.lrange(heaps_key, -1, -1, function(err, last_h_id) {
-                if (last_h_id.length === 1) {
-                    last_h_id=last_h_id[0];
-                    g.db.lrange(players_key, 0, 0, function(err, first_p_id) {
-                        /* attach First player L to new heap
-                           attach new player R to new heap, and L to last heap */
-                        first_p_id=first_p_id[0];
-                        first_p = new Player(g.db, g);
-                        first_p.set_id(first_p_id, function(err, val) {
-                            first_p.attach_heap_ids({'left' : h.id}, function () {
-                                p.attach_heap_ids({'left' : last_h_id, 'right' : h.id}, AddInGameLists);
+
+        /* create new Player and a his/her new R-heap */
+        p = new Player(g.db, g);
+        h = new Heap(g.db, g);
+        p.set_id(null, function(err, p_id) {
+            h.set_id(null, function(err,h_id){
+                g.db.lindex(heaps_key, -1, function(err, last_h_id) {
+                    if (last_h_id.length === 1) {
+                        g.db.lindex(players_key, 0, function(err, first_p_id) {
+                            /* attach First player L to new heap
+                               attach new player R to new heap, and L to last heap */
+                            first_p = new Player(g.db, g);
+                            first_p.set_id(first_p_id, function(err, val) {
+                                first_p.attach_heap_ids({'left' : h.id}, function () {
+                                    p.attach_heap_ids({'left' : last_h_id, 'right' : h.id}, AddInGameLists);
+                                });
                             });
                         });
-                    });
-                } else {
-                    /* If first payer/first heap attach player to the heap on both side */
-                    last_h_id = h.id;
-                    p.attach_heap_ids({'left' : last_h_id, 'right' : h.id}, AddInGameLists);
-                }
+                    } else {
+                        /* If first payer/first heap attach player to the heap on both side */
+                        last_h_id = h.id;
+                        p.attach_heap_ids({'left' : last_h_id, 'right' : h.id}, AddInGameLists);
+                    }
 
+                });
             });
         });
     });
-    function AddInGameLists(err, val) {
-        /* add player and heap into theirs respective lists */
-        g.db.rpush(players_key, p.id, function(err, res) {
-            g.db.rpush(heaps_key, h.id, function(err, res) {
-                cb && cb(err, res);
-            });
-        });
-    }
 };
 
 
@@ -483,18 +499,36 @@ console.log("Game ", this.id, " turn ", n);
 };
 
 Game.prototype.setPlayerState = function(p_id, state, side, cb) {
+    var state_id=StateEnum.SLEEP;
+    var s = {};
     var p = new Player(this.db, this);
     /* verification input */
-    if((state < StateEnum.FIRST) || (state > StateEnum.LAST) ) {
-        state=StateEnum.SLEEP;
-    }
-    var s= {};
+    if (typeof state === "string") {
+        switch(state.toLowerCase()) {
+            case "work":
+                state_id =StateEnum.WORK;
+                break;
+            case "steal":
+                /* no able to steal both side */
+                if (!(side.right && side.left)) {
+                    state_id =StateEnum.STEAL;
+                } /* else stay in idle state */
+                break;
+            /* case "idle": included in default*/
+            default:
+                /* nothing to update,
+                default state_id and s are already correct */
+                break;
+        }
+    } /* else
+        nothing to update,
+        default state_id and s are already correct */
     side.right && (s.right = side.right) ;
     side.left && (s.left = side.left) ;
 
     /* set input */
     p.set_id(p_id, function(err) {
-        p.set_action( state, function(err) {
+        p.set_action( state_id, function(err) {
             p.set_side(s, cb);
         });
     });
@@ -546,10 +580,11 @@ Game.prototype.displayPlayer = function(p_id, cb){
 };
 
 Game.prototype.getStatus = function(cb) {
-    var status = []
+    var status = [];
+    var g=this;
     function push_one_player(p_id, cb2) {
         g.getInfoPlayer(p_id, function(err, p_info) {
-                if(err) cb2(err);
+                if(err) { cb2(err); return;}
                 status.push(p_info);
                 cb(null);
         });
@@ -559,7 +594,7 @@ Game.prototype.getStatus = function(cb) {
         async.each(res, push_one_player, cb);
     });
 
-}
+};
 Game.prototype.displayAllPlayers = function(cb) {
     var g = this;
     function display_one_player(p_id, cb2) {
@@ -567,6 +602,47 @@ Game.prototype.displayAllPlayers = function(cb) {
     }
     this.db.lrange(this.prefix + ":players", 0, -1, function(err, res) {
         async.eachSeries(res, display_one_player, cb);
+    });
+};
+
+//Garanty that for each heap the both neigbough p_cb will be call before the h_p
+Game.prototype.parseAllPlayerFirst = function(err, p_process, h_process, cb){
+    var g=this;
+    var players_key = this.prefix + ":players"
+    var p, first_p, prev_p;
+    var first_p_id;
+    var h;
+    /* player = first_player */
+    var process = function(err){
+        p_process(p, function(err){
+            if (err){cb(err); return;}
+            h_process(h, function(err){
+                if (err){cb(err); return;}
+                prev_p =p;
+                p=h.right;
+                cb(null);
+            });
+        });
+    };
+
+    g.db.lindex(players_key, 0, function(err, first_p_id) {
+    /* do*/
+        p = new Player(g.db, g);
+        p.set_id(null, function(err, p_id) {
+            p.get_heaps(function(err, heaps){
+                h = heaps.right;
+            });
+            p_process(p, somecb);
+            prev_p = p;
+            p=h.right;
+        async.Until(process,
+        function(){ return (first_p ==p);},
+        cb );
+    }
+    /* call p_cb on player */
+    /* call h_cb on player.heap.right */
+    /* player = player.heap.right.player.right */
+    /* repeat while player!=firt_player */
     });
 };
 
