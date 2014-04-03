@@ -605,46 +605,6 @@ Game.prototype.displayAllPlayers = function(cb) {
     });
 };
 
-//Garanty that for each heap the both neigbough p_cb will be call before the h_p
-Game.prototype.parseAllPlayerFirst = function(err, p_process, h_process, cb){
-    var g=this;
-    var players_key = this.prefix + ":players"
-    var p, first_p, prev_p;
-    var first_p_id;
-    var h;
-    /* player = first_player */
-    var process = function(err){
-        p_process(p, function(err){
-            if (err){cb(err); return;}
-            h_process(h, function(err){
-                if (err){cb(err); return;}
-                prev_p =p;
-                p=h.right;
-                cb(null);
-            });
-        });
-    };
-
-    g.db.lindex(players_key, 0, function(err, first_p_id) {
-    /* do*/
-        p = new Player(g.db, g);
-        p.set_id(null, function(err, p_id) {
-            p.get_heaps(function(err, heaps){
-                h = heaps.right;
-            });
-            p_process(p, somecb);
-            prev_p = p;
-            p=h.right;
-        async.Until(process,
-        function(){ return (first_p ==p);},
-        cb );
-    }
-    /* call p_cb on player */
-    /* call h_cb on player.heap.right */
-    /* player = player.heap.right.player.right */
-    /* repeat while player!=firt_player */
-    });
-};
 
 exports.Game=Game;
 exports.gameEvent=gameEvent;
