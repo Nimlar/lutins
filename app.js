@@ -5,7 +5,7 @@ var restify = require('restify');
 // https://github.com/micha/resty
 var server = restify.createServer();
 
-function new_game(req, res, next) {
+function game_new(req, res, next) {
     var g=new a.Game(db);
     g.set_id(null, function(err, val) {
         res.send('{"game_id" : '+val+'}');
@@ -13,13 +13,23 @@ function new_game(req, res, next) {
     });
 }
 
-function new_player(req, res, next) {
+function player_num(req, res, next) {
+    var g = new a.Game(db);
+    g.set_id(req.params.game_id, function(err, val) {
+        g.players(function(err, val) {
+            res.send('{"nb_players" : ' +val+ ' }');
+            next();
+	    });
+    });
+}
+
+function player_new(req, res, next) {
     var g = new a.Game(db);
     g.set_id(req.params.game_id, function(err, val) {
         g.player_add("name no yet saved", function(err, val) {
-            res.send('{"game_id" : '+g.id+', "p_id" :'+val+'  }');
+            res.send('{"game_id" : '+g.id+', "p_id" :'+val+' }');
             next();
-	});
+	    });
     });
 }
 
@@ -64,8 +74,9 @@ function player_status(req, res, next) {
 
 server.use(restify.fullResponse())
        .use(restify.bodyParser());
-server.get('/game/new', new_game);
-server.get('/game/:game_id/p/new', new_player);
+server.get('/game/new', game_new);
+server.get('/game/:game_id/p/num', player_num);
+server.get('/game/:game_id/p/new', player_new);
 server.get('/game/:game_id/p/:p_id', player_status);
 server.post('/game/:game_id/p/:p_id/move', player_move);
 
@@ -73,7 +84,7 @@ server.post('/game/:game_id/p/:p_id/move', player_move);
 
 server.get('/game/:game_id/next', next_turn);
 
-server.listen(8080, function() {
+server.listen(process.env.PORT, process.env.IP, function() {
   console.log('listening: %s', server.url);
 });
 

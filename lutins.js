@@ -403,6 +403,14 @@ Game.prototype.set_id = function(game_id, cb) {
 //Game.prototype.Player = Player;
 //Game.prototype.Heap = Heap;
 
+Game.prototype.players = function(cb) {
+    var players_key = this.prefix + ":players";
+    var g=this;
+    g.db.llen(players_key, function(err, lplayers){
+        cb && cb(err, lplayers);
+    });
+};
+
 Game.prototype.player_add = function(name, cb) {
     var p, first_p;
     var h;
@@ -441,7 +449,7 @@ Game.prototype.player_add = function(name, cb) {
         p.set_id(null, function(err, p_id) {
             h.set_id(null, function(err,h_id){
                 g.db.lindex(heaps_key, -1, function(err, last_h_id) {
-                    if (last_h_id.length === 1) {
+                    if (last_h_id !== null) {
                         g.db.lindex(players_key, 0, function(err, first_p_id) {
                             /* attach First player L to new heap
                                attach new player R to new heap, and L to last heap */
